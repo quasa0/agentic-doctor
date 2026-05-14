@@ -303,6 +303,7 @@ function createClaudeStreamJsonHandler(
   let pending = "";
   let accumulated = "";
   const seenEvents = new Set<string>();
+  const toolNames = new Map<string, string>();
 
   return {
     write(text: string): void {
@@ -329,7 +330,7 @@ function createClaudeStreamJsonHandler(
           setFinalText(finalText);
         }
 
-        for (const eventLabel of extractClaudeEventLabels(parsed)) {
+        for (const eventLabel of extractClaudeEventLabels(parsed, toolNames)) {
           if (seenEvents.has(eventLabel) && eventLabel === "[claude] session started") continue;
           seenEvents.add(eventLabel);
           prefixer.write(`${eventLabel}\n`);
@@ -380,16 +381,17 @@ function extractClaudeFinalText(value: unknown): string {
   return "";
 }
 
-function extractClaudeEventLabels(value: unknown): string[] {
+function extractClaudeEventLabels(value: unknown, toolNames: Map<string, string>): string[] {
   value = unwrapClaudeStreamEvent(value);
   if (!isRecord(value)) return [];
   const type = typeof value.type === "string" ? value.type : "";
   if (!type) return [];
-  if (type === "assistant" || type === "result" || type === "content_block_delta") return [];
+  if (type === "assistant" || type === "result") return [];
+  if (type === "content_block_delta") return describeClaudeToolInputDelta(value, toolNames);
 
   if (type === "system") return ["[claude] session started"];
   if (type === "user" || type === "content_block_stop") return [];
-  if (type === "content_block_start") return describeClaudeContentBlock(value);
+  if (type === "content_block_start") return describeClaudeContentBlock(value, toolNames);
   if (type === "message_start") return ["[claude] message started"];
   if (type === "message_stop") return ["[claude] message complete"];
   if (type === "tool_use") return describeClaudeToolUse(value);
@@ -397,12 +399,37 @@ function extractClaudeEventLabels(value: unknown): string[] {
   return [];
 }
 
-function describeClaudeContentBlock(value: Record<string, unknown>): string[] {
+function describeClaudeContentBlock(value: Record<string, unknown>, toolNames: Map<string, string>): string[] {
   const block = isRecord(value.content_block) ? value.content_block : isRecord(value.block) ? value.block : value;
   const blockType = typeof block.type === "string" ? block.type : "";
-  if (blockType === "tool_use") return describeClaudeToolUse(block);
+  if (blockType === "tool_use") {
+    rememberClaudeTool(block, toolNames, typeof value.index === "number" ? value.index : undefined);
+    const descriptions = describeClaudeToolUse(block);
+    return descriptions.some((description) => description.endsWith(": {}")) ? [] : descriptions;
+  }
   if (blockType === "text") return ["[claude] writing response"];
   return blockType ? [`[claude] content block: ${blockType}`] : [];
+}
+
+function rememberClaudeTool(value: Record<string, unknown>, toolNames: Map<string, string>, outerIndex?: number): void {
+  const id = typeof value.id === "string" ? value.id : "";
+  const name = typeof value.name === "string" ? value.name : "";
+  const index = typeof outerIndex === "number" ? String(outerIndex) : typeof value.index === "number" ? String(value.index) : "";
+  if (id && name) toolNames.set(id, name);
+  if (index && name) toolNames.set(index, name);
+}
+
+function describeClaudeToolInputDelta(value: Record<string, unknown>, toolNames: Map<string, string>): string[] {
+  const index = typeof value.index === "number" ? String(value.index) : "";
+  const delta = isRecord(value.delta) ? value.delta : undefined;
+  const partialJson = delta && typeof delta.partial_json === "string" ? delta.partial_json : "";
+  if (!partialJson) return [];
+
+  const parsed = parsePartialToolInput(partialJson);
+  if (!parsed) return [];
+
+  const name = (index && toolNames.get(index)) || "tool";
+  return describeClaudeToolUse({ name, input: parsed });
 }
 
 function describeClaudeToolUse(value: Record<string, unknown>): string[] {
@@ -420,6 +447,13 @@ function describeClaudeToolUse(value: Record<string, unknown>): string[] {
   if (pattern) return [`[claude] tool ${name}: ${pattern}`];
   if (input) return [`[claude] tool ${name}: ${compactJson(input)}`];
   return [`[claude] using tool: ${name}`];
+}
+
+function parsePartialToolInput(partialJson: string): Record<string, unknown> | null {
+  const trimmed = partialJson.trim();
+  if (!trimmed.endsWith("}")) return null;
+  const parsed = parseJsonLine(trimmed);
+  return isRecord(parsed) ? parsed : null;
 }
 
 function describeClaudeToolResult(value: Record<string, unknown>): string[] {
