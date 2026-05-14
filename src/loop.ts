@@ -20,7 +20,7 @@ export async function runLoop(client: ModelClient, options: LoopOptions): Promis
   ].join("\n");
 
   for (let round = 1; options.maxRounds === -1 || round <= options.maxRounds; round += 1) {
-    const roundLimit = options.maxRounds === -1 ? "until /done" : `${round}/${options.maxRounds}`;
+    const roundLimit = options.maxRounds === -1 ? "unbounded" : `${round}/${options.maxRounds}`;
     logLine("system", `Starting round ${roundLimit}`);
 
     const advisorOutput = await client.complete({
@@ -28,7 +28,7 @@ export async function runLoop(client: ModelClient, options: LoopOptions): Promis
       reasoningEffort: "high",
       advisorEffort: options.advisorEffort,
       messages: [
-        { role: "system", content: advisorSystemPrompt() },
+        { role: "system", content: advisorSystemPrompt({ allowDone: options.allowDone }) },
         { role: "user", content: advisorInput }
       ]
     });
@@ -37,12 +37,23 @@ export async function runLoop(client: ModelClient, options: LoopOptions): Promis
     const advisorDirective = extractAdvisorDirective(advisorOutput);
 
     if (advisorDirective === "/done") {
-      logLine("system", "Advisor marked the work done.");
-      return;
+      if (options.allowDone) {
+        logLine("system", "Advisor marked the work done.");
+        return;
+      }
+
+      logLine("system", "Advisor emitted /done, but this loop is configured to continue.");
+      advisorInput = [
+        "You emitted /done, but this run is configured to keep finding and fixing issues.",
+        "Review the current codebase state briefly, find a different concrete issue, and respond with /goal only.",
+        "",
+        context
+      ].join("\n");
+      continue;
     }
 
     if (advisorDirective !== "/goal") {
-      throw new Error("Advisor response must start with /goal or /done.");
+      throw new Error(options.allowDone ? "Advisor response must include /goal or /done." : "Advisor response must include /goal.");
     }
 
     const executorOutput = await client.complete({
@@ -74,7 +85,9 @@ export async function runLoop(client: ModelClient, options: LoopOptions): Promis
       "Executor output:",
       executorOutput,
       "",
-      "Respond with /goal for the next bounded step or /done if sufficient."
+      options.allowDone
+        ? "Respond with /goal for the next bounded step or /done if sufficient."
+        : "Respond with /goal for a different bounded issue. Do not emit /done."
     ].join("\n");
   }
 

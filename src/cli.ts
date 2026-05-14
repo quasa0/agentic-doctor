@@ -19,10 +19,11 @@ program
   .requiredOption("-t, --target <path>", "Target codebase path, e.g. ~/f")
   .option("--executor-model <model>", "Executor model id; prompts when omitted")
   .option("--advisor-model <model>", "Advisor model id; prompts when omitted")
-  .option("--max-rounds <count>", "Maximum advisor/executor rounds, or -1 to run until /done", parseRoundLimit, 5)
+  .option("--max-rounds <count>", "Maximum advisor/executor rounds, or -1 for unbounded loop", parseRoundLimit, 5)
   .option("--task <task>", "Initial task", defaultTask())
   .option("--reasoning <effort>", "Executor reasoning effort: low, medium, high", "low")
   .option("--advisor-effort <effort>", "Advisor effort: low, medium, high, xhigh, max", "low")
+  .option("--allow-done", "Allow advisor to stop the loop with /done", false)
   .option("--harness", "Use Claude Code for advisor and Codex CLI for executor", false)
   .option("--mock", "Use a mock model client instead of Vercel AI Gateway", false)
   .action(async (options) => {
@@ -57,7 +58,8 @@ program
       initialTask: options.task,
       reasoningEffort: reasoning,
       advisorEffort,
-      includeTargetSnapshot: !options.harness
+      includeTargetSnapshot: !options.harness,
+      allowDone: options.allowDone
     });
   });
 
@@ -98,6 +100,6 @@ function defaultTask(): string {
     "Run a recursive framework-agnostic React doctor loop on the target codebase.",
     "The advisor should inspect only enough context to identify one high-confidence concrete issue to fix next, and emit a bounded /goal.",
     "The executor should implement the goal directly in the target codebase, run at most two lightweight verification commands, and report changed files, commands, and remaining risks.",
-    "After each executor pass, the advisor should review the result and either emit the next /goal or /done when the codebase is sufficiently improved."
+    "After each executor pass, the advisor should review the result, find a different issue, and emit the next /goal until the round limit is reached."
   ].join(" ");
 }

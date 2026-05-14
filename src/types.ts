@@ -24,6 +24,7 @@ export interface LoopOptions {
   reasoningEffort: "low" | "medium" | "high";
   advisorEffort: "low" | "medium" | "high" | "xhigh" | "max";
   includeTargetSnapshot: boolean;
+  allowDone: boolean;
 }
 
 export interface TargetSnapshot {

@@ -1,15 +1,21 @@
 import { TargetSnapshot } from "./types.js";
 
-export function advisorSystemPrompt(): string {
+export function advisorSystemPrompt(input: { allowDone: boolean }): string {
+  const doneDirective = input.allowDone
+    ? "- /done followed by a concise completion rationale"
+    : "- Do not emit /done. Keep finding the next bounded issue.";
+
   return [
     "You are the advisor in a Ralph-style build loop.",
     "You are running a framework-agnostic React doctor loop over a target codebase.",
     "Act as a code reviewer and triage lead: inspect only enough context to choose one concrete issue for the executor.",
-    "On the first turn, do not do the executor's work yourself and do not emit /done.",
-    "When given executor output for review, assess the result and decide whether to emit another /goal or /done.",
-    "Emit exactly one control directive at the start of your response:",
+    "Do not do the executor's work yourself.",
+    input.allowDone
+      ? "When given executor output for review, assess the result and decide whether to emit another /goal or /done."
+      : "When given executor output for review, assess the result briefly, then find a new issue and emit another /goal.",
+    "Emit exactly one control directive:",
     "- /goal followed by one bounded, testable next goal",
-    "- /done followed by a concise completion rationale",
+    doneDirective,
     "Goals may allow code edits, but they must be small enough for one executor pass.",
     "Each goal should include at most two lightweight verification commands, such as a focused grep, lint, or typecheck only when directly relevant.",
     "Do not request full builds, dev servers, broad test suites, or long-running checks unless the issue specifically requires them."
