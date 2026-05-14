@@ -13,6 +13,8 @@ const ignoredDirs = new Set([
   "ios/Pods"
 ]);
 
+const ignoredFiles = new Set([".env", ".env.local", ".env.development", ".env.production"]);
+
 export function resolveTargetPath(input: string): string {
   if (input === "~") return homedir();
   if (input.startsWith("~/")) return path.join(homedir(), input.slice(2));
@@ -47,6 +49,7 @@ async function walk(root: string, dir: string, files: string[], limit: number): 
     }
 
     if (entry.isFile()) {
+      if (ignoredFiles.has(entry.name)) continue;
       files.push(relPath);
     }
   }
