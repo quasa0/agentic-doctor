@@ -50,6 +50,18 @@ bun run dev -- run \
   --advisor-model anthropic/claude-sonnet-4.6
 ```
 
+Recursive Expo improvement loop:
+
+```bash
+bun run dev -- run \
+  --target ~/f/expo \
+  --harness \
+  --max-rounds -1 \
+  --executor-model openai/gpt-5.5 \
+  --advisor-model anthropic/claude-sonnet-4.6 \
+  --task "Run a recursive React doctor loop on this Expo React Native app. Advisor: inspect current state, choose the highest-impact concrete issue, and emit one bounded /goal with expected verification. Executor: implement the goal directly, run focused checks where practical, and report changed files, commands, and remaining risks. Repeat until advisor emits /done."
+```
+
 In harness mode, Claude Code is launched with `--permission-mode bypassPermissions` and
 `--dangerously-skip-permissions`. Codex is launched with
 `--dangerously-bypass-approvals-and-sandbox` and `--sandbox danger-full-access`.

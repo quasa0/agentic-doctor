@@ -19,8 +19,9 @@ export async function runLoop(client: ModelClient, options: LoopOptions): Promis
     "Set the first goal for the executor."
   ].join("\n");
 
-  for (let round = 1; round <= options.maxRounds; round += 1) {
-    logLine("system", `Starting round ${round}/${options.maxRounds}`);
+  for (let round = 1; options.maxRounds === -1 || round <= options.maxRounds; round += 1) {
+    const roundLimit = options.maxRounds === -1 ? "until /done" : `${round}/${options.maxRounds}`;
+    logLine("system", `Starting round ${roundLimit}`);
 
     const advisorOutput = await client.complete({
       model: options.advisorModel,
@@ -76,7 +77,9 @@ export async function runLoop(client: ModelClient, options: LoopOptions): Promis
     ].join("\n");
   }
 
-  logLine("system", `Stopped after max rounds: ${options.maxRounds}`);
+  if (options.maxRounds !== -1) {
+    logLine("system", `Stopped after max rounds: ${options.maxRounds}`);
+  }
 }
 
 function extractAdvisorDirective(output: string): "/goal" | "/done" | null {

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { logLine } from "./log.js";
@@ -32,6 +32,7 @@ export class CodingHarnessClient implements ModelClient {
       toolName: "Claude Code",
       model,
       color: ansi.orange,
+      streamStderr: true,
       command: enableHarnessFormatDemo ? "printf" : "claude",
       args: enableHarnessFormatDemo
         ? ["/goal Demo advisor goal\\nsecond advisor line\\n"]
@@ -47,7 +48,9 @@ export class CodingHarnessClient implements ModelClient {
             "bypassPermissions",
             "--dangerously-skip-permissions",
             "--output-format",
-            "text",
+            "stream-json",
+            "--include-partial-messages",
+            "--verbose",
             prompt
           ],
       cwd: this.targetPath,
@@ -56,7 +59,8 @@ export class CodingHarnessClient implements ModelClient {
         ANTHROPIC_BASE_URL: VERCEL_AI_GATEWAY_BASE_URL.replace(/\/v1$/, ""),
         ANTHROPIC_AUTH_TOKEN: this.gatewayApiKey,
         ANTHROPIC_API_KEY: ""
-      }
+      },
+      streamParser: enableHarnessFormatDemo ? "text" : "claude-stream-json"
     });
   }
 
@@ -68,6 +72,8 @@ export class CodingHarnessClient implements ModelClient {
   ): Promise<string> {
     const tmp = await mkdtemp(path.join(tmpdir(), "agentic-doctor-codex-"));
     const lastMessagePath = path.join(tmp, "last-message.txt");
+    const codexHome = path.join(tmp, "codex-home");
+    await mkdir(codexHome, { recursive: true });
 
     try {
       await runCommand({
@@ -75,6 +81,7 @@ export class CodingHarnessClient implements ModelClient {
         toolName: "Codex CLI",
         model,
         color: ansi.blue,
+        streamStderr: true,
         command: enableHarnessFormatDemo ? "sh" : "codex",
         args: enableHarnessFormatDemo
           ? ["-c", `printf 'executor demo line\\nsecond executor line\\n' > "${lastMessagePath}"; printf 'executor demo line\\nsecond executor line\\n'`]
@@ -89,6 +96,7 @@ export class CodingHarnessClient implements ModelClient {
               "danger-full-access",
               "--ignore-user-config",
               "--ignore-rules",
+              "--skip-git-repo-check",
               "--output-last-message",
               lastMessagePath,
               "-c",
@@ -107,8 +115,10 @@ export class CodingHarnessClient implements ModelClient {
             ],
         cwd: this.targetPath,
         env: {
-          AI_GATEWAY_API_KEY: this.gatewayApiKey
-        }
+          AI_GATEWAY_API_KEY: this.gatewayApiKey,
+          CODEX_HOME: codexHome
+        },
+        streamParser: "text"
       });
 
       return (await readFile(lastMessagePath, "utf8")).trim();
@@ -138,10 +148,12 @@ async function runCommand(input: {
   toolName: string;
   model: string;
   color: string;
+  streamStderr: boolean;
   command: string;
   args: string[];
   cwd: string;
   env: Record<string, string>;
+  streamParser: "text" | "claude-stream-json";
 }): Promise<string> {
   logLine("system", `Starting ${input.label}: ${input.toolName} with ${input.model}`);
   renderHarnessHeader(input);
@@ -154,19 +166,32 @@ async function runCommand(input: {
     });
 
     let combined = "";
+    let finalText = "";
     const stdoutPrefixer = createLinePrefixer(input.color, process.stdout);
     const stderrPrefixer = createLinePrefixer(input.color, process.stderr);
+    const stdoutHandler =
+      input.streamParser === "claude-stream-json"
+        ? createClaudeStreamJsonHandler(input.color, stdoutPrefixer, (text) => {
+            finalText = text;
+          })
+        : null;
 
     child.stdout.on("data", (chunk: Buffer) => {
       const text = chunk.toString();
       combined += text;
-      stdoutPrefixer.write(text);
+      if (stdoutHandler) {
+        stdoutHandler.write(text);
+      } else {
+        stdoutPrefixer.write(text);
+      }
     });
 
     child.stderr.on("data", (chunk: Buffer) => {
       const text = chunk.toString();
       combined += text;
-      stderrPrefixer.write(text);
+      if (input.streamStderr) {
+        stderrPrefixer.write(filterSubprocessStderr(text));
+      }
     });
 
     child.on("error", reject);
@@ -175,9 +200,10 @@ async function runCommand(input: {
       stderrPrefixer.flush();
       renderHarnessFooter(input.color);
       if (code === 0) {
-        resolve(combined.trim());
+        resolve((finalText || combined).trim());
       } else {
-        reject(new Error(`${input.label} exited with code ${code}`));
+        const tail = combined.trim().split(/\r?\n/).slice(-20).join("\n");
+        reject(new Error(`${input.label} exited with code ${code}${tail ? `\n${tail}` : ""}`));
       }
     });
   });
@@ -254,6 +280,107 @@ function createLinePrefixer(color: string, stream: NodeJS.WriteStream): {
       pending = "";
     }
   };
+}
+
+function createClaudeStreamJsonHandler(
+  color: string,
+  prefixer: ReturnType<typeof createLinePrefixer>,
+  setFinalText: (text: string) => void
+): {
+  write(text: string): void;
+} {
+  let pending = "";
+  let accumulated = "";
+
+  return {
+    write(text: string): void {
+      pending += text;
+      const lines = pending.split(/\r?\n/);
+      pending = lines.pop() ?? "";
+
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        const parsed = parseJsonLine(line);
+        if (!parsed) {
+          prefixer.write(`${line}\n`);
+          continue;
+        }
+
+        const delta = extractClaudeDelta(parsed);
+        if (delta) {
+          accumulated += delta;
+          prefixer.write(delta);
+        }
+
+        const finalText = extractClaudeFinalText(parsed);
+        if (finalText) {
+          setFinalText(finalText);
+        }
+      }
+
+      setFinalText(accumulated);
+    }
+  };
+}
+
+function parseJsonLine(line: string): unknown | null {
+  try {
+    return JSON.parse(line) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function extractClaudeDelta(value: unknown): string {
+  if (!isRecord(value)) return "";
+
+  const candidatePaths = [
+    value.delta,
+    isRecord(value.message) ? value.message.delta : undefined,
+    value.content_block_delta,
+    isRecord(value.event) ? value.event.delta : undefined
+  ];
+
+  for (const candidate of candidatePaths) {
+    if (!isRecord(candidate)) continue;
+    if (typeof candidate.text === "string") return candidate.text;
+    if (typeof candidate.content === "string") return candidate.content;
+    if (isRecord(candidate.delta) && typeof candidate.delta.text === "string") return candidate.delta.text;
+  }
+
+  if (typeof value.text === "string" && value.type === "content_block_delta") return value.text;
+  return "";
+}
+
+function extractClaudeFinalText(value: unknown): string {
+  if (!isRecord(value)) return "";
+  if (typeof value.result === "string") return value.result;
+  if (typeof value.response === "string") return value.response;
+  if (typeof value.text === "string" && (value.type === "result" || value.type === "final")) return value.text;
+  return "";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function filterSubprocessStderr(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .filter((line) => {
+      const value = line.trim();
+      if (!value) return true;
+      if (value.includes("codex_core_plugins::manager: failed to warm featured plugin")) return false;
+      if (value.includes("remote plugin sync request to https://chatgpt.com/backend-api/plugins/featured")) return false;
+      if (value.includes("failed with status 403 Forbidden: <html>")) return false;
+      if (value.includes("codex_core_plugins::manifest: ignoring interface.defaultPrompt")) return false;
+      if (value.includes("codex_core_skills::loader: ignoring interface.icon_")) return false;
+      if (value.includes("codex_core_plugins::startup_remote_sync: startup remote plugin sync failed")) return false;
+      if (value.includes("chatgpt authentication required to sync remote plugins")) return false;
+      if (value.startsWith("<") || value.includes("Cloudflare") || value.includes("_cf_chl_opt")) return false;
+      return true;
+    })
+    .join("\n");
 }
 
 function colorizeBoxLine(color: string, line: string): string {

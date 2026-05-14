@@ -19,8 +19,8 @@ program
   .requiredOption("-t, --target <path>", "Target codebase path, e.g. ~/f")
   .option("--executor-model <model>", "Executor model id; prompts when omitted")
   .option("--advisor-model <model>", "Advisor model id; prompts when omitted")
-  .option("--max-rounds <count>", "Maximum advisor/executor rounds", parseInteger, 5)
-  .option("--task <task>", "Initial task", "Build a framework-agnostic React doctor workflow for this codebase.")
+  .option("--max-rounds <count>", "Maximum advisor/executor rounds, or -1 to run until /done", parseRoundLimit, 5)
+  .option("--task <task>", "Initial task", defaultTask())
   .option("--reasoning <effort>", "Executor reasoning effort: low, medium, high", "low")
   .option("--harness", "Use Claude Code for advisor and Codex CLI for executor", false)
   .option("--mock", "Use a mock model client instead of Vercel AI Gateway", false)
@@ -64,10 +64,10 @@ program.parseAsync().catch((error: unknown) => {
   process.exitCode = 1;
 });
 
-function parseInteger(value: string): number {
+function parseRoundLimit(value: string): number {
   const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed < 1) {
-    throw new Error(`Expected a positive integer, got: ${value}`);
+  if (!Number.isFinite(parsed) || parsed === 0 || parsed < -1) {
+    throw new Error(`Expected a positive integer or -1, got: ${value}`);
   }
   return parsed;
 }
@@ -83,4 +83,13 @@ function requiredEnv(name: string): string {
     throw new Error(`Missing ${name}. Set it in .env or pass --mock.`);
   }
   return value;
+}
+
+function defaultTask(): string {
+  return [
+    "Run a recursive framework-agnostic React doctor loop on the target codebase.",
+    "The advisor should inspect the current state, identify the highest-impact concrete issue to fix next, and emit a bounded /goal.",
+    "The executor should implement the goal directly in the target codebase, run focused verification where practical, and report changed files, commands, and remaining risks.",
+    "After each executor pass, the advisor should review the result and either emit the next /goal or /done when the codebase is sufficiently improved."
+  ].join(" ");
 }
