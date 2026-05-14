@@ -4,6 +4,8 @@ import { Command } from "commander";
 import { MockModelClient, VercelGatewayClient } from "./modelClient.js";
 import { runLoop } from "./loop.js";
 import { anthropicAdvisorModels, chooseModel, openaiExecutorModels } from "./modelPicker.js";
+import { CodingHarnessClient } from "./subprocessClient.js";
+import { resolveTargetPath } from "./target.js";
 
 const program = new Command();
 
@@ -20,9 +22,11 @@ program
   .option("--max-rounds <count>", "Maximum advisor/executor rounds", parseInteger, 5)
   .option("--task <task>", "Initial task", "Build a framework-agnostic React doctor workflow for this codebase.")
   .option("--reasoning <effort>", "Executor reasoning effort: low, medium, high", "low")
+  .option("--harness", "Use Claude Code for advisor and Codex CLI for executor", false)
   .option("--mock", "Use a mock model client instead of Vercel AI Gateway", false)
   .action(async (options) => {
     const reasoning = parseReasoning(options.reasoning);
+    const targetPath = resolveTargetPath(options.target);
     const advisorModel = await chooseModel({
       provided: options.advisorModel,
       label: "advisor",
@@ -36,12 +40,15 @@ program
       fallback: openaiExecutorModels[0]
     });
 
+    const apiKey = options.mock ? "" : requiredEnv("AI_GATEWAY_API_KEY");
     const client = options.mock
       ? new MockModelClient()
-      : new VercelGatewayClient(requiredEnv("AI_GATEWAY_API_KEY"));
+      : options.harness
+        ? new CodingHarnessClient(targetPath, apiKey)
+        : new VercelGatewayClient(apiKey);
 
     await runLoop(client, {
-      targetPath: options.target,
+      targetPath,
       executorModel,
       advisorModel,
       maxRounds: options.maxRounds,

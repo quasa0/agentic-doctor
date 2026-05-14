@@ -31,12 +31,14 @@ export async function runLoop(client: ModelClient, options: LoopOptions): Promis
     });
     logBlock("advisor", "Model output", advisorOutput);
 
-    if (advisorOutput.trimStart().startsWith("/done")) {
+    const advisorDirective = extractAdvisorDirective(advisorOutput);
+
+    if (advisorDirective === "/done") {
       logLine("system", "Advisor marked the work done.");
       return;
     }
 
-    if (!advisorOutput.trimStart().startsWith("/goal")) {
+    if (advisorDirective !== "/goal") {
       throw new Error("Advisor response must start with /goal or /done.");
     }
 
@@ -74,4 +76,15 @@ export async function runLoop(client: ModelClient, options: LoopOptions): Promis
   }
 
   logLine("system", `Stopped after max rounds: ${options.maxRounds}`);
+}
+
+function extractAdvisorDirective(output: string): "/goal" | "/done" | null {
+  const line = output
+    .split(/\r?\n/)
+    .map((value) => value.trim())
+    .find((value) => value.startsWith("/goal") || value.startsWith("/done"));
+
+  if (line?.startsWith("/goal")) return "/goal";
+  if (line?.startsWith("/done")) return "/done";
+  return null;
 }
