@@ -1,5 +1,7 @@
 import { ModelClient } from "./types.js";
 
+const VERCEL_AI_GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/v1";
+
 interface GatewayResponse {
   choices?: Array<{
     message?: {
@@ -14,7 +16,7 @@ interface GatewayResponse {
 export class VercelGatewayClient implements ModelClient {
   constructor(
     private readonly apiKey: string,
-    private readonly baseUrl = "https://ai-gateway.vercel.sh/v1"
+    private readonly baseUrl = VERCEL_AI_GATEWAY_BASE_URL
   ) {}
 
   async complete(input: Parameters<ModelClient["complete"]>[0]): Promise<string> {

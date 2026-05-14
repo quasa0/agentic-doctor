@@ -21,7 +21,6 @@ Create `.env`:
 
 ```bash
 AI_GATEWAY_API_KEY=your_vercel_ai_gateway_key
-AI_GATEWAY_BASE_URL=https://ai-gateway.vercel.sh/v1
 ```
 
 ## Run

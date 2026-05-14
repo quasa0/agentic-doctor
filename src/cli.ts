@@ -38,10 +38,7 @@ program
 
     const client = options.mock
       ? new MockModelClient()
-      : new VercelGatewayClient(
-          requiredEnv("AI_GATEWAY_API_KEY"),
-          process.env.AI_GATEWAY_BASE_URL ?? "https://ai-gateway.vercel.sh/v1"
-        );
+      : new VercelGatewayClient(requiredEnv("AI_GATEWAY_API_KEY"));
 
     await runLoop(client, {
       targetPath: options.target,
