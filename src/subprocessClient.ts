@@ -159,7 +159,10 @@ async function runCommand(input: {
   renderHarnessHeader(input);
 
   return new Promise((resolve, reject) => {
-    let lastOutputAt = Date.now();
+    let lastVisibleOutputAt = Date.now();
+    const markVisibleOutput = () => {
+      lastVisibleOutputAt = Date.now();
+    };
     const child = spawn(input.command, input.args, {
       cwd: input.cwd,
       env: { ...process.env, ...input.env },
@@ -168,8 +171,8 @@ async function runCommand(input: {
 
     let combined = "";
     let finalText = "";
-    const stdoutPrefixer = createLinePrefixer(input.color, process.stdout);
-    const stderrPrefixer = createLinePrefixer(input.color, process.stderr);
+    const stdoutPrefixer = createLinePrefixer(input.color, process.stdout, markVisibleOutput);
+    const stderrPrefixer = createLinePrefixer(input.color, process.stderr, markVisibleOutput);
     const stdoutHandler =
       input.streamParser === "claude-stream-json"
         ? createClaudeStreamJsonHandler(stdoutPrefixer, (text) => {
@@ -178,7 +181,6 @@ async function runCommand(input: {
         : null;
 
     child.stdout.on("data", (chunk: Buffer) => {
-      lastOutputAt = Date.now();
       const text = chunk.toString();
       combined += text;
       if (stdoutHandler) {
@@ -189,7 +191,6 @@ async function runCommand(input: {
     });
 
     child.stderr.on("data", (chunk: Buffer) => {
-      lastOutputAt = Date.now();
       const text = chunk.toString();
       combined += text;
       if (input.streamStderr) {
@@ -198,8 +199,7 @@ async function runCommand(input: {
     });
 
     const heartbeat = setInterval(() => {
-      if (Date.now() - lastOutputAt < 5000) return;
-      lastOutputAt = Date.now();
+      if (Date.now() - lastVisibleOutputAt < 5000) return;
       stdoutPrefixer.write(`[waiting] ${input.toolName} is still running...\n`);
     }, 5000);
 
@@ -264,7 +264,7 @@ function renderHarnessFooter(color: string): void {
   process.stdout.write(`${colorizeBoxLine(color, footerLine("end of block"))}\n\n`);
 }
 
-function createLinePrefixer(color: string, stream: NodeJS.WriteStream): {
+function createLinePrefixer(color: string, stream: NodeJS.WriteStream, onWrite?: () => void): {
   write(text: string): void;
   flush(): void;
 } {
@@ -279,6 +279,7 @@ function createLinePrefixer(color: string, stream: NodeJS.WriteStream): {
       for (const line of lines) {
         for (const wrapped of wrapOutputLine(line)) {
           stream.write(`${color}> ${ansi.reset}${wrapped}\n`);
+          onWrite?.();
         }
       }
     },
@@ -286,6 +287,7 @@ function createLinePrefixer(color: string, stream: NodeJS.WriteStream): {
       if (!pending) return;
       for (const wrapped of wrapOutputLine(pending)) {
         stream.write(`${color}> ${ansi.reset}${wrapped}\n`);
+        onWrite?.();
       }
       pending = "";
     }
@@ -348,6 +350,7 @@ function parseJsonLine(line: string): unknown | null {
 }
 
 function extractClaudeDelta(value: unknown): string {
+  value = unwrapClaudeStreamEvent(value);
   if (!isRecord(value)) return "";
 
   const candidatePaths = [
@@ -369,6 +372,7 @@ function extractClaudeDelta(value: unknown): string {
 }
 
 function extractClaudeFinalText(value: unknown): string {
+  value = unwrapClaudeStreamEvent(value);
   if (!isRecord(value)) return "";
   if (typeof value.result === "string") return value.result;
   if (typeof value.response === "string") return value.response;
@@ -377,10 +381,11 @@ function extractClaudeFinalText(value: unknown): string {
 }
 
 function extractClaudeEventLabels(value: unknown): string[] {
+  value = unwrapClaudeStreamEvent(value);
   if (!isRecord(value)) return [];
   const type = typeof value.type === "string" ? value.type : "";
   if (!type) return [];
-  if (type === "assistant" || type === "result" || type === "content_block_delta" || type === "stream_event") return [];
+  if (type === "assistant" || type === "result" || type === "content_block_delta") return [];
 
   if (type === "system") return ["[claude] session started"];
   if (type === "user" || type === "content_block_stop") return [];
@@ -424,6 +429,12 @@ function describeClaudeToolResult(value: Record<string, unknown>): string[] {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function unwrapClaudeStreamEvent(value: unknown): unknown {
+  if (!isRecord(value)) return value;
+  if (value.type === "stream_event" && isRecord(value.event)) return value.event;
+  return value;
 }
 
 function filterSubprocessStderr(text: string): string {
