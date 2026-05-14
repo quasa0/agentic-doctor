@@ -406,17 +406,19 @@ function describeClaudeContentBlock(value: Record<string, unknown>): string[] {
 }
 
 function describeClaudeToolUse(value: Record<string, unknown>): string[] {
-  const name = typeof value.name === "string" ? value.name : "tool";
-  const input = isRecord(value.input) ? value.input : undefined;
-  const command = input && typeof input.command === "string" ? input.command : "";
-  const filePath = input && typeof input.file_path === "string" ? input.file_path : "";
-  const pathValue = input && typeof input.path === "string" ? input.path : "";
-  const pattern = input && typeof input.pattern === "string" ? input.pattern : "";
+  const block = isRecord(value.content_block) ? value.content_block : isRecord(value.block) ? value.block : value;
+  const name = typeof block.name === "string" ? block.name : typeof value.name === "string" ? value.name : "tool";
+  const input = isRecord(block.input) ? block.input : isRecord(value.input) ? value.input : undefined;
+  const command = firstString(input, ["command", "cmd", "script"]);
+  const filePath = firstString(input, ["file_path", "filepath", "file"]);
+  const pathValue = firstString(input, ["path", "cwd"]);
+  const pattern = firstString(input, ["pattern", "query"]);
 
   if (command) return [`[claude] tool ${name}: ${command}`];
   if (filePath) return [`[claude] tool ${name}: ${filePath}`];
   if (pathValue) return [`[claude] tool ${name}: ${pathValue}`];
   if (pattern) return [`[claude] tool ${name}: ${pattern}`];
+  if (input) return [`[claude] tool ${name}: ${compactJson(input)}`];
   return [`[claude] using tool: ${name}`];
 }
 
@@ -429,6 +431,21 @@ function describeClaudeToolResult(value: Record<string, unknown>): string[] {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function firstString(record: Record<string, unknown> | undefined, keys: string[]): string {
+  if (!record) return "";
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  return "";
+}
+
+function compactJson(value: unknown): string {
+  const json = JSON.stringify(value);
+  if (!json) return "";
+  return json.length > 220 ? `${json.slice(0, 220)}...` : json;
 }
 
 function unwrapClaudeStreamEvent(value: unknown): unknown {
