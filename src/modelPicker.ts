@@ -3,8 +3,8 @@ import { stdin as input, stdout as output } from "node:process";
 
 export const anthropicAdvisorModels = [
   "anthropic/claude-sonnet-4.6",
+  "anthropic/claude-haiku-4.5",
   "anthropic/claude-opus-4.6",
-  "anthropic/claude-haiku-4.5"
 ];
 
 export const openaiExecutorModels = [

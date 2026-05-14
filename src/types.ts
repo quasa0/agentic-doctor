@@ -11,6 +11,7 @@ export interface ModelClient {
     messages: ChatMessage[];
     temperature?: number;
     reasoningEffort?: "low" | "medium" | "high";
+    advisorEffort?: "low" | "medium" | "high" | "xhigh" | "max";
   }): Promise<string>;
 }
 
@@ -21,6 +22,7 @@ export interface LoopOptions {
   maxRounds: number;
   initialTask: string;
   reasoningEffort: "low" | "medium" | "high";
+  advisorEffort: "low" | "medium" | "high" | "xhigh" | "max";
   includeTargetSnapshot: boolean;
 }
 

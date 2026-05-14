@@ -19,13 +19,13 @@ export class CodingHarnessClient implements ModelClient {
     const prompt = renderPrompt(input.messages);
 
     if (system.includes("You are the advisor")) {
-      return this.runClaudeAdvisor(input.model, system, prompt);
+      return this.runClaudeAdvisor(input.model, system, prompt, input.advisorEffort ?? "low");
     }
 
     return this.runCodexExecutor(input.model, system, prompt, input.reasoningEffort ?? "low");
   }
 
-  private async runClaudeAdvisor(model: string, system: string, prompt: string): Promise<string> {
+  private async runClaudeAdvisor(model: string, system: string, prompt: string, effort: "low" | "medium" | "high" | "xhigh" | "max" = "low"): Promise<string> {
     const normalizedModel = normalizeClaudeModel(model);
     return runCommand({
       label: "advisor",
@@ -41,6 +41,8 @@ export class CodingHarnessClient implements ModelClient {
             "--print",
             "--model",
             normalizedModel,
+            "--effort",
+            effort,
             "--no-session-persistence",
             "--system-prompt",
             system,

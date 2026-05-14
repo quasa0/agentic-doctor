@@ -22,10 +22,12 @@ program
   .option("--max-rounds <count>", "Maximum advisor/executor rounds, or -1 to run until /done", parseRoundLimit, 5)
   .option("--task <task>", "Initial task", defaultTask())
   .option("--reasoning <effort>", "Executor reasoning effort: low, medium, high", "low")
+  .option("--advisor-effort <effort>", "Advisor effort: low, medium, high, xhigh, max", "low")
   .option("--harness", "Use Claude Code for advisor and Codex CLI for executor", false)
   .option("--mock", "Use a mock model client instead of Vercel AI Gateway", false)
   .action(async (options) => {
     const reasoning = parseReasoning(options.reasoning);
+    const advisorEffort = parseAdvisorEffort(options.advisorEffort);
     const targetPath = resolveTargetPath(options.target);
     const advisorModel = await chooseModel({
       provided: options.advisorModel,
@@ -54,6 +56,7 @@ program
       maxRounds: options.maxRounds,
       initialTask: options.task,
       reasoningEffort: reasoning,
+      advisorEffort,
       includeTargetSnapshot: !options.harness
     });
   });
@@ -75,6 +78,11 @@ function parseRoundLimit(value: string): number {
 function parseReasoning(value: string): "low" | "medium" | "high" {
   if (value === "low" || value === "medium" || value === "high") return value;
   throw new Error(`Expected reasoning to be low, medium, or high; got: ${value}`);
+}
+
+function parseAdvisorEffort(value: string): "low" | "medium" | "high" | "xhigh" | "max" {
+  if (value === "low" || value === "medium" || value === "high" || value === "xhigh" || value === "max") return value;
+  throw new Error(`Expected advisor effort to be low, medium, high, xhigh, or max; got: ${value}`);
 }
 
 function requiredEnv(name: string): string {

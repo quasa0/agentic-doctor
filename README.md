@@ -58,7 +58,8 @@ bun run dev -- run \
   --harness \
   --max-rounds -1 \
   --executor-model openai/gpt-5.5 \
-  --advisor-model anthropic/claude-sonnet-4.6 \
+  --advisor-model anthropic/claude-haiku-4.5 \
+  --advisor-effort low \
   --task "Run a recursive React doctor loop on this Expo React Native app. Advisor: inspect current state, choose the highest-impact concrete issue, and emit one bounded /goal with expected verification. Executor: implement the goal directly, run focused checks where practical, and report changed files, commands, and remaining risks. Repeat until advisor emits /done."
 ```
 

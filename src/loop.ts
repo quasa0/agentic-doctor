@@ -26,6 +26,7 @@ export async function runLoop(client: ModelClient, options: LoopOptions): Promis
     const advisorOutput = await client.complete({
       model: options.advisorModel,
       reasoningEffort: "high",
+      advisorEffort: options.advisorEffort,
       messages: [
         { role: "system", content: advisorSystemPrompt() },
         { role: "user", content: advisorInput }
