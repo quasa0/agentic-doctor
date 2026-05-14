@@ -96,8 +96,8 @@ function requiredEnv(name: string): string {
 function defaultTask(): string {
   return [
     "Run a recursive framework-agnostic React doctor loop on the target codebase.",
-    "The advisor should inspect the current state, identify the highest-impact concrete issue to fix next, and emit a bounded /goal.",
-    "The executor should implement the goal directly in the target codebase, run focused verification where practical, and report changed files, commands, and remaining risks.",
+    "The advisor should inspect only enough context to identify one high-confidence concrete issue to fix next, and emit a bounded /goal.",
+    "The executor should implement the goal directly in the target codebase, run at most two lightweight verification commands, and report changed files, commands, and remaining risks.",
     "After each executor pass, the advisor should review the result and either emit the next /goal or /done when the codebase is sufficiently improved."
   ].join(" ");
 }

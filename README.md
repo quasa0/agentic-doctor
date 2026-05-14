@@ -60,7 +60,7 @@ bun run dev -- run \
   --executor-model openai/gpt-5.5 \
   --advisor-model anthropic/claude-haiku-4.5 \
   --advisor-effort low \
-  --task "Run a recursive React doctor loop on this Expo React Native app. Advisor: inspect current state, choose the highest-impact concrete issue, and emit one bounded /goal with expected verification. Executor: implement the goal directly, run focused checks where practical, and report changed files, commands, and remaining risks. Repeat until advisor emits /done."
+  --task "Fast demo mode. Advisor: inspect only enough to find one small high-confidence code quality issue, then immediately emit one bounded /goal for Codex with at most two lightweight verification commands. Do not do a broad audit. Executor: implement only that goal, do not create worklogs or notes, run only the requested lightweight verification, and immediately report changed files and result. Advisor then reviews and emits /done unless the fix clearly failed."
 ```
 
 In harness mode, Claude Code is launched with `--permission-mode bypassPermissions` and
