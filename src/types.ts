@@ -21,6 +21,7 @@ export interface LoopOptions {
   maxRounds: number;
   initialTask: string;
   reasoningEffort: "low" | "medium" | "high";
+  includeTargetSnapshot: boolean;
 }
 
 export interface TargetSnapshot {

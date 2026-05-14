@@ -4,10 +4,11 @@ import { snapshotTarget } from "./target.js";
 import { LoopOptions, ModelClient } from "./types.js";
 
 export async function runLoop(client: ModelClient, options: LoopOptions): Promise<void> {
-  const snapshot = await snapshotTarget(options.targetPath);
-  const context = targetContext(snapshot);
+  const context = options.includeTargetSnapshot
+    ? targetContext(await snapshotTarget(options.targetPath))
+    : `Target path: ${options.targetPath}`;
 
-  logBlock("system", "Target snapshot", context);
+  logBlock("system", options.includeTargetSnapshot ? "Target snapshot" : "Target", context);
 
   let advisorInput = [
     "Initial task:",

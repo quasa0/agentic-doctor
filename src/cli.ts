@@ -53,7 +53,8 @@ program
       advisorModel,
       maxRounds: options.maxRounds,
       initialTask: options.task,
-      reasoningEffort: reasoning
+      reasoningEffort: reasoning,
+      includeTargetSnapshot: !options.harness
     });
   });
 
