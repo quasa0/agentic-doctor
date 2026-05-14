@@ -159,6 +159,7 @@ async function runCommand(input: {
   renderHarnessHeader(input);
 
   return new Promise((resolve, reject) => {
+    let lastOutputAt = Date.now();
     const child = spawn(input.command, input.args, {
       cwd: input.cwd,
       env: { ...process.env, ...input.env },
@@ -171,12 +172,13 @@ async function runCommand(input: {
     const stderrPrefixer = createLinePrefixer(input.color, process.stderr);
     const stdoutHandler =
       input.streamParser === "claude-stream-json"
-        ? createClaudeStreamJsonHandler(input.color, stdoutPrefixer, (text) => {
+        ? createClaudeStreamJsonHandler(stdoutPrefixer, (text) => {
             finalText = text;
           })
         : null;
 
     child.stdout.on("data", (chunk: Buffer) => {
+      lastOutputAt = Date.now();
       const text = chunk.toString();
       combined += text;
       if (stdoutHandler) {
@@ -187,6 +189,7 @@ async function runCommand(input: {
     });
 
     child.stderr.on("data", (chunk: Buffer) => {
+      lastOutputAt = Date.now();
       const text = chunk.toString();
       combined += text;
       if (input.streamStderr) {
@@ -194,8 +197,15 @@ async function runCommand(input: {
       }
     });
 
+    const heartbeat = setInterval(() => {
+      if (Date.now() - lastOutputAt < 5000) return;
+      lastOutputAt = Date.now();
+      stdoutPrefixer.write(`[waiting] ${input.toolName} is still running...\n`);
+    }, 5000);
+
     child.on("error", reject);
     child.on("close", (code) => {
+      clearInterval(heartbeat);
       stdoutPrefixer.flush();
       stderrPrefixer.flush();
       renderHarnessFooter(input.color);
@@ -283,7 +293,6 @@ function createLinePrefixer(color: string, stream: NodeJS.WriteStream): {
 }
 
 function createClaudeStreamJsonHandler(
-  color: string,
   prefixer: ReturnType<typeof createLinePrefixer>,
   setFinalText: (text: string) => void
 ): {
@@ -291,6 +300,7 @@ function createClaudeStreamJsonHandler(
 } {
   let pending = "";
   let accumulated = "";
+  const seenEvents = new Set<string>();
 
   return {
     write(text: string): void {
@@ -315,6 +325,12 @@ function createClaudeStreamJsonHandler(
         const finalText = extractClaudeFinalText(parsed);
         if (finalText) {
           setFinalText(finalText);
+        }
+
+        for (const eventLabel of extractClaudeEventLabels(parsed)) {
+          if (seenEvents.has(eventLabel) && eventLabel === "[claude] session started") continue;
+          seenEvents.add(eventLabel);
+          prefixer.write(`${eventLabel}\n`);
         }
       }
 
@@ -358,6 +374,52 @@ function extractClaudeFinalText(value: unknown): string {
   if (typeof value.response === "string") return value.response;
   if (typeof value.text === "string" && (value.type === "result" || value.type === "final")) return value.text;
   return "";
+}
+
+function extractClaudeEventLabels(value: unknown): string[] {
+  if (!isRecord(value)) return [];
+  const type = typeof value.type === "string" ? value.type : "";
+  if (!type) return [];
+  if (type === "assistant" || type === "result" || type === "content_block_delta" || type === "stream_event") return [];
+
+  if (type === "system") return ["[claude] session started"];
+  if (type === "user" || type === "content_block_stop") return [];
+  if (type === "content_block_start") return describeClaudeContentBlock(value);
+  if (type === "message_start") return ["[claude] message started"];
+  if (type === "message_stop") return ["[claude] message complete"];
+  if (type === "tool_use") return describeClaudeToolUse(value);
+  if (type === "tool_result") return describeClaudeToolResult(value);
+  return [];
+}
+
+function describeClaudeContentBlock(value: Record<string, unknown>): string[] {
+  const block = isRecord(value.content_block) ? value.content_block : isRecord(value.block) ? value.block : value;
+  const blockType = typeof block.type === "string" ? block.type : "";
+  if (blockType === "tool_use") return describeClaudeToolUse(block);
+  if (blockType === "text") return ["[claude] writing response"];
+  return blockType ? [`[claude] content block: ${blockType}`] : [];
+}
+
+function describeClaudeToolUse(value: Record<string, unknown>): string[] {
+  const name = typeof value.name === "string" ? value.name : "tool";
+  const input = isRecord(value.input) ? value.input : undefined;
+  const command = input && typeof input.command === "string" ? input.command : "";
+  const filePath = input && typeof input.file_path === "string" ? input.file_path : "";
+  const pathValue = input && typeof input.path === "string" ? input.path : "";
+  const pattern = input && typeof input.pattern === "string" ? input.pattern : "";
+
+  if (command) return [`[claude] tool ${name}: ${command}`];
+  if (filePath) return [`[claude] tool ${name}: ${filePath}`];
+  if (pathValue) return [`[claude] tool ${name}: ${pathValue}`];
+  if (pattern) return [`[claude] tool ${name}: ${pattern}`];
+  return [`[claude] using tool: ${name}`];
+}
+
+function describeClaudeToolResult(value: Record<string, unknown>): string[] {
+  const content = value.content;
+  if (typeof content === "string") return [`[claude] tool result (${content.length} chars)`];
+  if (Array.isArray(content)) return [`[claude] tool result (${content.length} item${content.length === 1 ? "" : "s"})`];
+  return ["[claude] received tool result"];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
