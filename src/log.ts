@@ -6,12 +6,27 @@ const roleLabels: Record<RoleName | "system", string> = {
   system: "SYSTEM"
 };
 
+const ansi = {
+  reset: "\x1b[0m",
+  purple: "\x1b[38;5;141m"
+};
+
 export function logLine(role: RoleName | "system", message: string): void {
   const stamp = new Date().toISOString();
-  process.stdout.write(`[${stamp}] [${roleLabels[role]}] ${message}\n`);
+  writePrefixed(role, `[${stamp}] [${roleLabels[role]}] ${message}`);
 }
 
 export function logBlock(role: RoleName | "system", title: string, body: string): void {
   logLine(role, title);
-  process.stdout.write(`${body.trim()}\n\n`);
+  writePrefixed(role, body.trim());
+  process.stdout.write("\n");
+}
+
+function writePrefixed(role: RoleName | "system", text: string): void {
+  const prefix = role === "system" ? `${ansi.purple}> ${ansi.reset}` : "";
+  const lines = text.split(/\r?\n/);
+
+  for (const line of lines) {
+    process.stdout.write(`${prefix}${line}\n`);
+  }
 }
