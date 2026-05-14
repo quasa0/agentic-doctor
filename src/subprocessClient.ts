@@ -195,16 +195,17 @@ const ansi = {
 
 function renderHarnessHeader(input: { label: string; toolName: string; model: string; color: string }): void {
   const role = input.label === "advisor" ? "Advisor" : "Executor";
-  const title = `${role} via Vercel AI Gateway`;
   const model = `model: ${input.model}`;
+  const provider = `provider: Vercel AI Gateway ${VERCEL_AI_GATEWAY_BASE_URL}`;
   const tool = `tool: ${input.toolName}`;
 
   process.stdout.write(
     [
       "",
       `${input.color}${ansi.bold}╔══════════════════════════════════════════════════════════════════════════════╗${ansi.reset}`,
-      `${input.color}${ansi.bold}║  ${title.padEnd(74)}║${ansi.reset}`,
+      `${input.color}${ansi.bold}║  ${role.padEnd(74)}║${ansi.reset}`,
       `${input.color}${ansi.bold}║  ${model.padEnd(74)}║${ansi.reset}`,
+      `${input.color}${ansi.bold}║  ${provider.padEnd(74)}║${ansi.reset}`,
       `${input.color}${ansi.bold}║  ${tool.padEnd(74)}║${ansi.reset}`,
       `${input.color}${ansi.bold}╠══════════════════════════════════════════════════════════════════════════════╣${ansi.reset}`,
       `${input.color}${ansi.bold}║  live subprocess output                                                   ║${ansi.reset}`,
