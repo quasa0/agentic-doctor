@@ -87,6 +87,8 @@ export class CodingHarnessClient implements ModelClient {
               "--dangerously-bypass-approvals-and-sandbox",
               "--sandbox",
               "danger-full-access",
+              "--ignore-user-config",
+              "--ignore-rules",
               "--output-last-message",
               lastMessagePath,
               "-c",
@@ -141,7 +143,7 @@ async function runCommand(input: {
   cwd: string;
   env: Record<string, string>;
 }): Promise<string> {
-  logLine("system", `Starting ${input.label}: ${input.command} ${redactedArgs(input.args).join(" ")}`);
+  logLine("system", `Starting ${input.label}: ${input.toolName} with ${input.model}`);
   renderHarnessHeader(input);
 
   return new Promise((resolve, reject) => {
@@ -181,10 +183,6 @@ async function runCommand(input: {
   });
 }
 
-function redactedArgs(args: string[]): string[] {
-  return args.map((arg) => (arg.length > 240 ? `${arg.slice(0, 240)}...` : arg));
-}
-
 const ansi = {
   reset: "\x1b[0m",
   bold: "\x1b[1m",
@@ -193,29 +191,41 @@ const ansi = {
   blue: "\x1b[38;5;39m"
 };
 
+const box = {
+  innerWidth: 76,
+  paddingWidth: 2,
+  contentWidth: 72,
+  top: "╔" + "═".repeat(76) + "╗",
+  middle: "╠" + "═".repeat(76) + "╣",
+  bottom: "╚" + "═".repeat(76) + "╝"
+};
+
 function renderHarnessHeader(input: { label: string; toolName: string; model: string; color: string }): void {
   const role = input.label === "advisor" ? "Advisor" : "Executor";
-  const model = `model: ${input.model}`;
-  const provider = `provider: Vercel AI Gateway ${VERCEL_AI_GATEWAY_BASE_URL}`;
-  const tool = `tool: ${input.toolName}`;
+  const rows = [
+    role,
+    `model: ${input.model}`,
+    `provider: Vercel AI Gateway ${VERCEL_AI_GATEWAY_BASE_URL}`,
+    `tool: ${input.toolName}`,
+    "",
+    "live subprocess output"
+  ];
 
   process.stdout.write(
     [
       "",
-      `${input.color}${ansi.bold}╔══════════════════════════════════════════════════════════════════════════════╗${ansi.reset}`,
-      `${input.color}${ansi.bold}║  ${role.padEnd(74)}║${ansi.reset}`,
-      `${input.color}${ansi.bold}║  ${model.padEnd(74)}║${ansi.reset}`,
-      `${input.color}${ansi.bold}║  ${provider.padEnd(74)}║${ansi.reset}`,
-      `${input.color}${ansi.bold}║  ${tool.padEnd(74)}║${ansi.reset}`,
-      `${input.color}${ansi.bold}╠══════════════════════════════════════════════════════════════════════════════╣${ansi.reset}`,
-      `${input.color}${ansi.bold}║  live subprocess output                                                   ║${ansi.reset}`,
-      `${input.color}${ansi.bold}╚══════════════════════════════════════════════════════════════════════════════╝${ansi.reset}`
+      colorizeBoxLine(input.color, box.top),
+      ...rows.flatMap((row, index) => {
+        if (row === "") return [colorizeBoxLine(input.color, box.middle)];
+        return wrapBoxRow(row).map((line) => colorizeBoxLine(input.color, line));
+      }),
+      colorizeBoxLine(input.color, box.bottom)
     ].join("\n") + "\n"
   );
 }
 
 function renderHarnessFooter(color: string): void {
-  process.stdout.write(`${color}${ansi.bold}╚════════════════════════════════ end of block ═══════════════════════════════╝${ansi.reset}\n\n`);
+  process.stdout.write(`${colorizeBoxLine(color, footerLine("end of block"))}\n\n`);
 }
 
 function createLinePrefixer(color: string, stream: NodeJS.WriteStream): {
@@ -231,13 +241,71 @@ function createLinePrefixer(color: string, stream: NodeJS.WriteStream): {
       pending = lines.pop() ?? "";
 
       for (const line of lines) {
-        stream.write(`${color}> ${ansi.reset}${line}\n`);
+        for (const wrapped of wrapOutputLine(line)) {
+          stream.write(`${color}> ${ansi.reset}${wrapped}\n`);
+        }
       }
     },
     flush(): void {
       if (!pending) return;
-      stream.write(`${color}> ${ansi.reset}${pending}\n`);
+      for (const wrapped of wrapOutputLine(pending)) {
+        stream.write(`${color}> ${ansi.reset}${wrapped}\n`);
+      }
       pending = "";
     }
   };
+}
+
+function colorizeBoxLine(color: string, line: string): string {
+  return `${color}${ansi.bold}${line}${ansi.reset}`;
+}
+
+function wrapBoxRow(text: string): string[] {
+  const padding = " ".repeat(box.paddingWidth);
+  return wrapText(text, box.contentWidth).map((chunk) => `║${padding}${chunk.padEnd(box.contentWidth)}${padding}║`);
+}
+
+function footerLine(label: string): string {
+  const padded = ` ${label} `;
+  const left = Math.floor((box.innerWidth - padded.length) / 2);
+  const right = box.innerWidth - padded.length - left;
+  return "╚" + "═".repeat(left) + padded + "═".repeat(right) + "╝";
+}
+
+function wrapOutputLine(line: string): string[] {
+  return wrapText(line, Math.max(40, process.stdout.columns ? process.stdout.columns - 4 : 96));
+}
+
+function wrapText(text: string, width: number): string[] {
+  if (text.length <= width) return [text];
+  const words = text.split(/(\s+)/);
+  const lines: string[] = [];
+  let current = "";
+
+  for (const word of words) {
+    if (!word) continue;
+    if (current.length + word.length <= width) {
+      current += word;
+      continue;
+    }
+
+    if (current.trimEnd()) lines.push(current.trimEnd());
+    current = "";
+
+    if (word.length > width) {
+      for (let index = 0; index < word.length; index += width) {
+        const chunk = word.slice(index, index + width);
+        if (chunk.length === width) {
+          lines.push(chunk);
+        } else {
+          current = chunk;
+        }
+      }
+    } else {
+      current = word.trimStart();
+    }
+  }
+
+  if (current.trimEnd()) lines.push(current.trimEnd());
+  return lines.length > 0 ? lines : [""];
 }
