@@ -1,0 +1,27 @@
+{
+  "name": "agentic-doctor",
+  "version": "0.1.0",
+  "description": "A Ralph-style advisor/executor loop for framework-agnostic codebase doctoring.",
+  "type": "module",
+  "bin": {
+    "agentic-doctor": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "dotenv": "^16.4.7",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
