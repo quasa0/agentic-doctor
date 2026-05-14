@@ -6,6 +6,7 @@ import { logLine } from "./log.js";
 import { ChatMessage, ModelClient } from "./types.js";
 
 const VERCEL_AI_GATEWAY_BASE_URL = "https://ai-gateway.vercel.sh/v1";
+const enableHarnessFormatDemo = process.env.AGENTIC_DOCTOR_HARNESS_FORMAT_DEMO === "1";
 
 export class CodingHarnessClient implements ModelClient {
   constructor(
@@ -27,23 +28,28 @@ export class CodingHarnessClient implements ModelClient {
   private async runClaudeAdvisor(model: string, system: string, prompt: string): Promise<string> {
     const normalizedModel = normalizeClaudeModel(model);
     return runCommand({
-      label: "claude",
-      command: "claude",
-      args: [
-        "--bare",
-        "--print",
-        "--model",
-        normalizedModel,
-        "--no-session-persistence",
-        "--system-prompt",
-        system,
-        "--permission-mode",
-        "bypassPermissions",
-        "--dangerously-skip-permissions",
-        "--output-format",
-        "text",
-        prompt
-      ],
+      label: "advisor",
+      toolName: "Claude Code",
+      model,
+      color: ansi.orange,
+      command: enableHarnessFormatDemo ? "printf" : "claude",
+      args: enableHarnessFormatDemo
+        ? ["/goal Demo advisor goal\\nsecond advisor line\\n"]
+        : [
+            "--bare",
+            "--print",
+            "--model",
+            normalizedModel,
+            "--no-session-persistence",
+            "--system-prompt",
+            system,
+            "--permission-mode",
+            "bypassPermissions",
+            "--dangerously-skip-permissions",
+            "--output-format",
+            "text",
+            prompt
+          ],
       cwd: this.targetPath,
       env: {
         AI_GATEWAY_API_KEY: this.gatewayApiKey,
@@ -65,33 +71,38 @@ export class CodingHarnessClient implements ModelClient {
 
     try {
       await runCommand({
-        label: "codex",
-        command: "codex",
-        args: [
-          "exec",
-          "--cd",
-          this.targetPath,
-          "--model",
-          model,
-          "--dangerously-bypass-approvals-and-sandbox",
-          "--sandbox",
-          "danger-full-access",
-          "--output-last-message",
-          lastMessagePath,
-          "-c",
-          'model_provider="vercel"',
-          "-c",
-          'model_providers.vercel.name="Vercel AI Gateway"',
-          "-c",
-          `model_providers.vercel.base_url="${VERCEL_AI_GATEWAY_BASE_URL}"`,
-          "-c",
-          'model_providers.vercel.env_key="AI_GATEWAY_API_KEY"',
-          "-c",
-          'model_providers.vercel.wire_api="responses"',
-          "-c",
-          `model_reasoning_effort="${reasoningEffort}"`,
-          [system, "", prompt].join("\n")
-        ],
+        label: "executor",
+        toolName: "Codex CLI",
+        model,
+        color: ansi.blue,
+        command: enableHarnessFormatDemo ? "sh" : "codex",
+        args: enableHarnessFormatDemo
+          ? ["-c", `printf 'executor demo line\\nsecond executor line\\n' > "${lastMessagePath}"; printf 'executor demo line\\nsecond executor line\\n'`]
+          : [
+              "exec",
+              "--cd",
+              this.targetPath,
+              "--model",
+              model,
+              "--dangerously-bypass-approvals-and-sandbox",
+              "--sandbox",
+              "danger-full-access",
+              "--output-last-message",
+              lastMessagePath,
+              "-c",
+              'model_provider="vercel"',
+              "-c",
+              'model_providers.vercel.name="Vercel AI Gateway"',
+              "-c",
+              `model_providers.vercel.base_url="${VERCEL_AI_GATEWAY_BASE_URL}"`,
+              "-c",
+              'model_providers.vercel.env_key="AI_GATEWAY_API_KEY"',
+              "-c",
+              'model_providers.vercel.wire_api="responses"',
+              "-c",
+              `model_reasoning_effort="${reasoningEffort}"`,
+              [system, "", prompt].join("\n")
+            ],
         cwd: this.targetPath,
         env: {
           AI_GATEWAY_API_KEY: this.gatewayApiKey
@@ -122,12 +133,16 @@ function normalizeClaudeModel(model: string): string {
 
 async function runCommand(input: {
   label: string;
+  toolName: string;
+  model: string;
+  color: string;
   command: string;
   args: string[];
   cwd: string;
   env: Record<string, string>;
 }): Promise<string> {
   logLine("system", `Starting ${input.label}: ${input.command} ${redactedArgs(input.args).join(" ")}`);
+  renderHarnessHeader(input);
 
   return new Promise((resolve, reject) => {
     const child = spawn(input.command, input.args, {
@@ -137,21 +152,26 @@ async function runCommand(input: {
     });
 
     let combined = "";
+    const stdoutPrefixer = createLinePrefixer(input.color, process.stdout);
+    const stderrPrefixer = createLinePrefixer(input.color, process.stderr);
 
     child.stdout.on("data", (chunk: Buffer) => {
       const text = chunk.toString();
       combined += text;
-      process.stdout.write(text);
+      stdoutPrefixer.write(text);
     });
 
     child.stderr.on("data", (chunk: Buffer) => {
       const text = chunk.toString();
       combined += text;
-      process.stderr.write(text);
+      stderrPrefixer.write(text);
     });
 
     child.on("error", reject);
     child.on("close", (code) => {
+      stdoutPrefixer.flush();
+      stderrPrefixer.flush();
+      renderHarnessFooter(input.color);
       if (code === 0) {
         resolve(combined.trim());
       } else {
@@ -163,4 +183,60 @@ async function runCommand(input: {
 
 function redactedArgs(args: string[]): string[] {
   return args.map((arg) => (arg.length > 240 ? `${arg.slice(0, 240)}...` : arg));
+}
+
+const ansi = {
+  reset: "\x1b[0m",
+  bold: "\x1b[1m",
+  dim: "\x1b[2m",
+  orange: "\x1b[38;5;208m",
+  blue: "\x1b[38;5;39m"
+};
+
+function renderHarnessHeader(input: { label: string; toolName: string; model: string; color: string }): void {
+  const role = input.label === "advisor" ? "Advisor" : "Executor";
+  const title = `${role} via Vercel AI Gateway`;
+  const model = `model: ${input.model}`;
+  const tool = `tool: ${input.toolName}`;
+
+  process.stdout.write(
+    [
+      "",
+      `${input.color}${ansi.bold}╔══════════════════════════════════════════════════════════════════════════════╗${ansi.reset}`,
+      `${input.color}${ansi.bold}║  ${title.padEnd(74)}║${ansi.reset}`,
+      `${input.color}${ansi.bold}║  ${model.padEnd(74)}║${ansi.reset}`,
+      `${input.color}${ansi.bold}║  ${tool.padEnd(74)}║${ansi.reset}`,
+      `${input.color}${ansi.bold}╠══════════════════════════════════════════════════════════════════════════════╣${ansi.reset}`,
+      `${input.color}${ansi.bold}║  live subprocess output                                                   ║${ansi.reset}`,
+      `${input.color}${ansi.bold}╚══════════════════════════════════════════════════════════════════════════════╝${ansi.reset}`
+    ].join("\n") + "\n"
+  );
+}
+
+function renderHarnessFooter(color: string): void {
+  process.stdout.write(`${color}${ansi.bold}╚════════════════════════════════ end of block ═══════════════════════════════╝${ansi.reset}\n\n`);
+}
+
+function createLinePrefixer(color: string, stream: NodeJS.WriteStream): {
+  write(text: string): void;
+  flush(): void;
+} {
+  let pending = "";
+
+  return {
+    write(text: string): void {
+      pending += text;
+      const lines = pending.split(/\r?\n/);
+      pending = lines.pop() ?? "";
+
+      for (const line of lines) {
+        stream.write(`${color}> ${ansi.reset}${line}\n`);
+      }
+    },
+    flush(): void {
+      if (!pending) return;
+      stream.write(`${color}> ${ansi.reset}${pending}\n`);
+      pending = "";
+    }
+  };
 }
