@@ -37,7 +37,7 @@ Gateway mode:
 npm run dev -- run \
   --target ~/f \
   --executor-model openai/gpt-5.5 \
-  --advisor-model anthropic/claude-opus-4.6
+  --advisor-model anthropic/claude-sonnet-4.6
 ```
 
 Useful options:
